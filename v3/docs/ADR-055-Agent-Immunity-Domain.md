@@ -56,7 +56,7 @@ flowchart LR
 | Component                 | Responsibility                                      | Reuses From        |
 | :------------------------ | :-------------------------------------------------- | :----------------- |
 | `ImmunityCoordinator`     | Orchestrates the Sense→Analyze→Neutralize→Learn loop | `BaseDomainPlugin` |
-| `VectorAnalyzerService`   | Checks 5 health vectors                             | (New)              |
+| `VectorAnalyzerService`   | Extensible registry for 11 health vectors           | (New)              |
 | `AntibodySynthesizer`     | Generates code fixes via Agent Booster              | `AgentBoosterAdapter` |
 | `DoctrineRegistryService` | Manages per-project rules                           | `MemoryBackend`    |
 | `TruthScorerService`      | Validates semantic coherence                        | `CoherenceService` |
@@ -71,15 +71,119 @@ flowchart LR
 
 ---
 
-## The 5 Health Vectors
+## The 11 Health Vectors
 
-| Vector       | Analyzer                                           | Example Violation                                     |
-| :----------- | :------------------------------------------------- | :---------------------------------------------------- |
-| Performance  | Regex scan for O(n²), sync I/O in hot paths        | `fs.readFileSync` in event loop                       |
-| Security     | SAST rules, secret patterns, OWASP Top 10          | `eval()`, hardcoded JWT secret, SQL injection         |
-| Dependencies | Lockfile hash check, license audit                 | `npm install` without frozen lockfile                 |
-| Coherence    | Semantic diff (Intent vs. Code)                    | Large refactor when task was "fix typo"               |
-| Truth        | Hallucination check via SONA embeddings            | Invented API names, non-existent file paths           |
+The immune system analyzes trajectory steps against **11 health vectors**, organized into **Core** (always enabled) and **Extended** (opt-in per project).
+
+### Core Vectors (5) - MVP
+
+| #  | Vector       | Weight | Analyzer                                    | Example Violation                              |
+| :- | :----------- | :----- | :------------------------------------------ | :--------------------------------------------- |
+| 1  | Performance  | 0.15   | Regex scan for O(n²), sync I/O in hot paths | `fs.readFileSync` in event loop                |
+| 2  | Security     | 0.25   | SAST rules, secret patterns, OWASP Top 10   | `eval()`, hardcoded JWT secret, SQL injection  |
+| 3  | Dependencies | 0.15   | Lockfile hash, license audit, CVE check     | `npm install` without frozen lockfile          |
+| 4  | Coherence    | 0.25   | Semantic diff (Intent vs. Code)             | Large refactor when task was "fix typo"        |
+| 5  | Truth        | 0.20   | Hallucination check via SONA embeddings     | Invented API names, non-existent file paths    |
+
+### Extended Vectors (6) - Opt-In
+
+| #  | Vector          | Weight | Analyzer                                    | Example Violation                              |
+| :- | :-------------- | :----- | :------------------------------------------ | :--------------------------------------------- |
+| 6  | Cost/Tokens     | 0.10   | Token counter, loop detector                | Agent stuck in 50K token infinite loop         |
+| 7  | Privacy/PII     | 0.15   | Regex for emails, SSN, credit cards         | Hardcoded PII in test fixtures                 |
+| 8  | Observability   | 0.10   | AST check for logging/tracing calls         | No error handling, missing telemetry           |
+| 9  | Accessibility   | 0.10   | ARIA/WCAG rules for UI components           | `<button>` without accessible label            |
+| 10 | Reproducibility | 0.10   | Determinism check (random, Date.now)        | `Math.random()` without seed in test           |
+| 11 | Documentation   | 0.05   | JSDoc/TSDoc presence check                  | Exported function without documentation        |
+
+---
+
+## Extensible Vector Architecture
+
+The `VectorAnalyzerService` is designed as a **plugin registry** to allow adding new vectors without modifying core code:
+
+```typescript
+// src/domains/agent-immunity/interfaces.ts
+
+export interface HealthVector {
+  /** Unique vector identifier */
+  readonly id: string;
+  
+  /** Human-readable name */
+  readonly name: string;
+  
+  /** Weight for overall immunity score (0.0 - 1.0) */
+  readonly weight: number;
+  
+  /** Whether this vector is enabled by default */
+  readonly enabledByDefault: boolean;
+  
+  /** Analyze a trajectory step for violations */
+  analyze(step: TrajectoryStep): Promise<VectorResult>;
+}
+
+export interface VectorResult {
+  vectorId: string;
+  passed: boolean;
+  confidence: number;  // 0.0 - 1.0
+  violations: Violation[];
+  suggestedFix?: string;
+}
+
+export interface VectorAnalyzerConfig {
+  /** Override default vector weights */
+  weights?: Partial<Record<VectorId, number>>;
+  
+  /** Explicitly enable/disable vectors */
+  enabled?: Partial<Record<VectorId, boolean>>;
+  
+  /** Minimum confidence to trigger antibody */
+  confidenceThreshold?: number;  // default: 0.7
+}
+```
+
+### Registration Pattern
+
+```typescript
+// src/domains/agent-immunity/services/vector-analyzer.ts
+
+export class VectorAnalyzerService {
+  private vectors: Map<string, HealthVector> = new Map();
+  
+  constructor(private config: VectorAnalyzerConfig = {}) {
+    // Register core vectors by default
+    this.register(new PerformanceVector());
+    this.register(new SecurityVector());
+    this.register(new DependenciesVector());
+    this.register(new CoherenceVector());
+    this.register(new TruthVector());
+  }
+  
+  /** Register a new health vector (for extensions) */
+  register(vector: HealthVector): void {
+    this.vectors.set(vector.id, vector);
+  }
+  
+  /** Analyze all enabled vectors */
+  async analyzeAll(step: TrajectoryStep): Promise<ImmunityReport> {
+    const results: VectorResult[] = [];
+    
+    for (const [id, vector] of this.vectors) {
+      if (this.isEnabled(id)) {
+        results.push(await vector.analyze(step));
+      }
+    }
+    
+    return this.computeReport(results);
+  }
+  
+  private isEnabled(vectorId: string): boolean {
+    const explicit = this.config.enabled?.[vectorId];
+    if (explicit !== undefined) return explicit;
+    return this.vectors.get(vectorId)?.enabledByDefault ?? true;
+  }
+}
+```
 
 ---
 
@@ -131,10 +235,11 @@ graph TD
 
 ### Automated Tests
 
-1.  **VectorAnalyzerService**: Unit tests for each of the 5 vectors.
+1.  **VectorAnalyzerService**: Unit tests for all 11 vectors.
 2.  **AntibodySynthesizer**: Test WASM transform success rates.
 3.  **ImmunityCoordinator**: Integration test for full loop.
-4.  **Latency Benchmark**: Ensure `<50ms` per trajectory step.
+4.  **Latency Benchmark**: Ensure `<50ms` per trajectory step (core vectors only).
+5.  **Extension Test**: Verify custom vector registration works.
 
 ### Manual Verification
 
