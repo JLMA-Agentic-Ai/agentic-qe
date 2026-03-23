@@ -1,0 +1,53 @@
+{
+  "collectionTimestamp": "2026-03-23T06:24:29Z",
+  "releaseId": "unknown",
+  "lookbackDays": 30,
+  "source": "github-api",
+  "triggerType": "scheduled",
+  "repository": "JLMA-Agentic-Ai/agentic-qe",
+  "dora": {
+    "deploymentFrequency": {
+      "value": 0,
+      "unit": "per_week",
+      "rawCount": 0,
+      "period": "30d"
+    },
+    "leadTime": {
+      "value": null,
+      "unit": "hours",
+      "measurements": []
+    },
+    "changeFailureRate": {
+      "value": 0,
+      "totalRuns": 0,
+      "failedRuns": 0,
+      "period": "30d"
+    },
+    "mttr": {
+      "value": null,
+      "unit": "hours",
+      "bugsClosed": 0,
+      "medianHours": null,
+      "details": [],
+      "period": "30d"
+    }
+  },
+  "releaseContext": {
+    "currentRelease": {
+      "tag": "unknown",
+      "publishedAt": null,
+      "createdAt": null
+    },
+    "recentReleases": []
+  },
+  "issues": {
+    "openBugs": null,
+    "closedBugsInPeriod": 0
+  },
+  "limitations": [
+    "DORA metrics are approximated from GitHub API, not from APM/observability tooling",
+    "Lead time measures tag-to-publish, not commit-to-production",
+    "Change failure rate uses workflow failures as proxy for production incidents",
+    "MTTR uses bug issue lifecycle as proxy for incident recovery time"
+  ]
+}
