@@ -985,22 +985,26 @@ import { createLLMRouterCommand } from './commands/llm-router.js';
 import { createSyncCommands } from './commands/sync.js';
 import { createHooksCommand } from './commands/hooks.js';
 import { createLearningCommand } from './commands/learning.js';
+import { createMemoryCommand } from './commands/memory.js';
 import { createMcpCommand } from './commands/mcp.js';
 import { createPlatformCommand } from './commands/platform.js';
 import { createProveCommand } from './commands/prove.js';
 import { createRuVectorCommand } from './commands/ruvector-commands.js';
 import { createAuditCommand } from './commands/audit.js';
+import { createPipelineCommand } from './commands/pipeline.js';
 
 program.addCommand(createTokenUsageCommand());
 program.addCommand(createLLMRouterCommand());
 program.addCommand(createSyncCommands());
 program.addCommand(createHooksCommand());
 program.addCommand(createLearningCommand());
+program.addCommand(createMemoryCommand(context, cleanupAndExit, ensureInitialized));
 program.addCommand(createMcpCommand());
 program.addCommand(createPlatformCommand());
 program.addCommand(createProveCommand(context, cleanupAndExit, ensureInitialized));
 program.addCommand(createRuVectorCommand());
 program.addCommand(createAuditCommand(context, cleanupAndExit, ensureInitialized));
+program.addCommand(createPipelineCommand(context, cleanupAndExit, ensureInitialized));
 
 // ============================================================================
 // Shutdown Handlers

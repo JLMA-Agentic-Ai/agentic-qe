@@ -48,6 +48,7 @@ const nativeModules = [
   'prime-radiant-advanced-wasm',
   'pg',
   'pg-native',
+  'web-tree-sitter',
 ];
 
 // Pure JS externals that work fine with ESM import
@@ -163,6 +164,7 @@ try {
   await build({
     entryPoints: [join(__dirname, '..', 'src/mcp/entry.ts')],
     bundle: true,
+    minify: true,
     platform: 'node',
     format: 'esm',
     external: esmExternals,

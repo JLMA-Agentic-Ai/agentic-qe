@@ -37,6 +37,8 @@ import {
   // ADR-051: Model routing handlers
   handleModelRoute,
   handleRoutingMetrics,
+  // Imp-18: Economic routing handler
+  handleRoutingEconomics,
   handleAgentList,
   handleAgentSpawn,
   handleAgentMetrics,
@@ -109,6 +111,10 @@ import {
   type PerformanceReport,
 } from './performance-monitor';
 
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
+const _pkg = _require('../../package.json') as { version: string };
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -165,7 +171,7 @@ export class MCPProtocolServer {
   constructor(config: MCPServerConfig = {}) {
     this.config = {
       name: config.name ?? 'agentic-qe-v3',
-      version: config.version ?? '3.0.0',
+      version: config.version ?? _pkg.version,
       transport: config.transport ?? 'stdio',
       maxRequestSize: config.maxRequestSize ?? 10 * 1024 * 1024,
     };
@@ -300,6 +306,13 @@ export class MCPProtocolServer {
       tools: { listChanged: true },
       logging: {},
     };
+  }
+
+  /**
+   * Get registered tool definitions (for testing and introspection)
+   */
+  getToolDefinitions(): ToolDefinition[] {
+    return Array.from(this.tools.values()).map(entry => entry.definition);
   }
 
   /**
@@ -1023,6 +1036,18 @@ export class MCPProtocolServer {
       handler: (params) => handleRoutingMetrics(params as unknown as Parameters<typeof handleRoutingMetrics>[0]),
     });
 
+    this.registerTool({
+      definition: {
+        name: 'routing_economics',
+        description: 'Get economic routing report: tier efficiency, budget status, cost-per-quality analysis, and savings opportunities. Example: routing_economics({ taskComplexity: 0.5 })',
+        category: 'routing',
+        parameters: [
+          { name: 'taskComplexity', type: 'number', description: 'Task complexity score 0-1 for tier scoring (default: 0.5)', default: 0.5 },
+        ],
+      },
+      handler: (params) => handleRoutingEconomics(params as unknown as Parameters<typeof handleRoutingEconomics>[0]),
+    });
+
     // ADR-057: Infrastructure self-healing tools
     this.registerTool({
       definition: {
@@ -1238,6 +1263,38 @@ export class MCPProtocolServer {
         ],
       },
       handler: (params) => handlePipelineValidate(params as { yaml: string; variables?: Record<string, unknown> }),
+    });
+
+    // =========================================================================
+    // Imp-15: Session Cache Stats
+    // =========================================================================
+
+    this.registerTool({
+      definition: {
+        name: 'session_cache_stats',
+        description: 'Get session operation cache statistics: hit rate, cache size, tokens saved via O(1) fingerprint reuse. Example: session_cache_stats({})',
+        category: 'learning',
+        parameters: [],
+      },
+      handler: async () => {
+        try {
+          const { getSessionCache } = await import('../optimization/session-cache.js');
+          const stats = getSessionCache().getStats();
+          return {
+            success: true,
+            data: {
+              ...stats,
+              hitRatePercent: `${(stats.hitRate * 100).toFixed(1)}%`,
+              description: 'Session cache provides O(1) exact-match lookups before HNSW similarity search',
+            },
+          };
+        } catch (err) {
+          return {
+            success: false,
+            error: `Failed to get session cache stats: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+      },
     });
 
     // =========================================================================

@@ -119,6 +119,10 @@ export interface InitOptions {
   withContinueDev?: boolean;
   /** Install all coding agent platform configurations */
   withAllPlatforms?: boolean;
+  /** Skip MCP server config (MCP is enabled by default) */
+  noMcp?: boolean;
+  /** @deprecated Use default behavior instead — MCP is now enabled by default */
+  withMcp?: boolean;
 }
 
 /**

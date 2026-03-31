@@ -3,7 +3,7 @@
  * ADR-070: Witness Chain Audit Compliance
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach} from 'vitest';
 import Database from 'better-sqlite3';
 import {
   createWitnessChain,
@@ -26,6 +26,12 @@ describe('WitnessChain', () => {
     db = new Database(':memory:');
     chain = createWitnessChain(db);
     await chain.initialize();
+  });
+
+  afterEach(() => {
+    if (db) {
+      db.close();
+    }
   });
 
   // --------------------------------------------------------------------------
@@ -206,6 +212,23 @@ describe('WitnessChain', () => {
       const page2 = chain.getEntries({ limit: 2, offset: 2 });
       expect(page2).toHaveLength(2);
       expect(page2[0].id).toBe(3);
+    });
+
+    it('should return zero rows for limit=0', () => {
+      const entries = chain.getEntries({ limit: 0 });
+      expect(entries).toHaveLength(0);
+    });
+
+    it('should support offset without limit (returns all rows from offset)', () => {
+      const entries = chain.getEntries({ offset: 3 });
+      expect(entries).toHaveLength(2); // 5 total - 3 skipped = 2
+      expect(entries[0].id).toBe(4);
+      expect(entries[1].id).toBe(5);
+    });
+
+    it('should return empty for offset beyond total rows', () => {
+      const entries = chain.getEntries({ offset: 100 });
+      expect(entries).toHaveLength(0);
     });
   });
 

@@ -40,6 +40,17 @@ export class MCPPhase extends BasePhase<MCPResult> {
   protected async run(context: InitContext): Promise<MCPResult> {
     const { projectRoot } = context;
 
+    // MCP is enabled by default — skip only with --no-mcp
+    if (context.options.noMcp) {
+      context.services.log('  MCP: skipped (--no-mcp)');
+      context.services.log('  CLI commands available: aqe memory, aqe test, aqe coverage, etc.');
+      return {
+        configured: false,
+        mcpPath: '',
+        serverName: '',
+      };
+    }
+
     // AQE MCP server configuration
     // AQE_PROJECT_ROOT omitted — runtime discovery via findProjectRoot() is
     // portable across machines, devcontainers, and CI (#321)

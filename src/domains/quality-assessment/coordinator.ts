@@ -14,6 +14,7 @@
  * CQ-002: Extends BaseDomainCoordinator for lifecycle deduplication
  */
 
+import { LoggerFactory } from '../../logging/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Result, ok, err, DomainEvent } from '../../shared/types';
 import { toError, toErrorMessage } from '../../shared/error-utils.js';
@@ -87,6 +88,9 @@ import * as GateEvalHelpers from './coordinator-gate-evaluation.js';
 
 // ADR-070: Witness Chain audit trail
 import { getWitnessChain } from '../../audit/witness-chain.js';
+
+// Three-loop feature flag for instantAdapt protocol
+import { isSONAThreeLoopEnabled } from '../../integrations/ruvector/feature-flags.js';
 
 // V3 Integration: MinCut Awareness (ADR-047) - only import types needed beyond base
 import type { QueenMinCutBridge } from '../../coordination/mincut/queen-integration';
@@ -196,6 +200,8 @@ type QualityWorkflowType = 'gate-evaluation' | 'quality-analysis' | 'deployment-
  *
  * CQ-002: Extends BaseDomainCoordinator
  */
+const logger = LoggerFactory.create('quality-assessment');
+
 export class QualityAssessmentCoordinator
   extends BaseDomainCoordinator<CoordinatorConfig, QualityWorkflowType>
   implements IQualityAssessmentCoordinator
@@ -347,7 +353,7 @@ export class QualityAssessmentCoordinator
 
       // Self-healing: Check if operations should be paused due to critical topology
       if (this.minCutMixin.shouldPauseOperations()) {
-        console.warn('[quality-assessment] Quality gate evaluation paused: topology is in critical state');
+        logger.warn('Quality gate evaluation paused: topology is in critical state');
         this.failWorkflow(workflowId, 'Topology is in critical state');
         return err(new Error('Quality gate evaluation paused: topology is in critical state'));
       }
@@ -355,7 +361,7 @@ export class QualityAssessmentCoordinator
       // V3 Integration: Check topology health before proceeding (ADR-047)
       // Apply stricter thresholds when topology is degraded
       if (!this.isTopologyHealthy()) {
-        console.warn('[quality-assessment] Topology degraded - applying stricter thresholds for quality gate');
+        logger.warn('Topology degraded - applying stricter thresholds for quality gate');
         // Continue evaluation but with heightened caution - quality gates are critical
       }
 
@@ -405,6 +411,21 @@ export class QualityAssessmentCoordinator
 
       // Success path
       this.completeWorkflow(workflowId);
+
+      // Three-loop protocol: instantAdapt must precede recordOutcome
+      if (isSONAThreeLoopEnabled() && this.qesona?.isThreeLoopEnabled()) {
+        const m = effectiveRequest.metrics;
+        this.qesona.instantAdapt([
+          m.coverage / 100,
+          m.testsPassing / 100,
+          m.criticalBugs / 10,
+          m.codeSmells / 100,
+          m.securityVulnerabilities / 10,
+          m.technicalDebt / 100,
+          m.duplications / 100,
+          finalResult.overallScore / 100,
+        ]);
+      }
 
       // Store quality pattern in SONA if enabled
       if (this.config.enableSONAPatternLearning && this.qesona) {
@@ -487,7 +508,7 @@ export class QualityAssessmentCoordinator
 
       // Self-healing: Check if operations should be paused due to critical topology
       if (this.minCutMixin.shouldPauseOperations()) {
-        console.warn('[quality-assessment] Quality analysis paused: topology is in critical state');
+        logger.warn('Quality analysis paused: topology is in critical state');
         this.failWorkflow(workflowId, 'Topology is in critical state');
         return err(new Error('Quality analysis paused: topology is in critical state'));
       }
@@ -495,7 +516,7 @@ export class QualityAssessmentCoordinator
       // V3 Integration: Check topology health and adjust behavior (ADR-047)
       const topologyHealthy = this.isTopologyHealthy();
       if (!topologyHealthy) {
-        console.warn('[quality-assessment] Topology degraded during quality analysis');
+        logger.warn('Topology degraded during quality analysis');
         // Could adjust analysis depth or timeouts in degraded state
         // For now, we proceed but could be extended to reduce analysis scope
       }
@@ -528,6 +549,17 @@ export class QualityAssessmentCoordinator
         if (enhanced) {
           result.value = enhanced;
         }
+      }
+
+      // Three-loop protocol: instantAdapt must precede recordOutcome
+      if (isSONAThreeLoopEnabled() && this.qesona?.isThreeLoopEnabled()) {
+        const score = result.value.score;
+        this.qesona.instantAdapt([
+          score.overall / 100,
+          result.value.metrics.length / 20,
+          result.value.trends.length / 10,
+          result.value.recommendations.length / 10,
+        ]);
       }
 
       // Store quality pattern in SONA
@@ -569,14 +601,14 @@ export class QualityAssessmentCoordinator
 
       // Self-healing: Check if operations should be paused due to critical topology
       if (this.minCutMixin.shouldPauseOperations()) {
-        console.warn('[quality-assessment] Deployment advice paused: topology is in critical state');
+        logger.warn('Deployment advice paused: topology is in critical state');
         this.failWorkflow(workflowId, 'Topology is in critical state');
         return err(new Error('Deployment advice paused: topology is in critical state'));
       }
 
       // V3 Integration: Check topology health (ADR-047)
       if (!this.isTopologyHealthy()) {
-        console.warn('[quality-assessment] Topology degraded during deployment advice generation');
+        logger.warn('Topology degraded during deployment advice generation');
       }
 
       // Spawn deployment advisor agent
@@ -653,14 +685,14 @@ export class QualityAssessmentCoordinator
 
       // Self-healing: Check if operations should be paused due to critical topology
       if (this.minCutMixin.shouldPauseOperations()) {
-        console.warn('[quality-assessment] Complexity analysis paused: topology is in critical state');
+        logger.warn('Complexity analysis paused: topology is in critical state');
         this.failWorkflow(workflowId, 'Topology is in critical state');
         return err(new Error('Complexity analysis paused: topology is in critical state'));
       }
 
       // V3 Integration: Check topology health (ADR-047)
       if (!this.isTopologyHealthy()) {
-        console.warn('[quality-assessment] Topology degraded during complexity analysis');
+        logger.warn('Topology degraded during complexity analysis');
       }
 
       // Spawn complexity analyzer agent
@@ -1009,7 +1041,7 @@ export class QualityAssessmentCoordinator
       return;
     }
 
-    console.log(
+    logger.info(
       `[${this.domain}] Received ${relevantInsights.length} relevant dream insights from cycle ${cycleId}`
     );
 
@@ -1043,7 +1075,7 @@ export class QualityAssessmentCoordinator
     insight: DreamCycleCompletedPayload['insights'][0],
     cycleId: string
   ): Promise<void> {
-    console.log(
+    logger.info(
       `[${this.domain}] Applying dream insight: ${insight.description.slice(0, 100)}...`
     );
 
@@ -1087,13 +1119,13 @@ export class QualityAssessmentCoordinator
           }
         );
 
-        console.log(
+        logger.info(
           `[${this.domain}] Created SONA pattern from dream insight ${insight.id}`
         );
       } catch (error) {
-        console.error(
-          `[${this.domain}] Failed to store dream insight pattern:`,
-          error
+        logger.error(
+          `[${this.domain}] Failed to store dream insight pattern`,
+          error instanceof Error ? error : undefined
         );
       }
     }
@@ -1143,11 +1175,14 @@ export class QualityAssessmentCoordinator
       branch: number;
     };
 
-    await this.memory.set(
-      `quality-assessment:coverage:${payload.reportId}`,
-      payload,
-      { namespace: 'quality-assessment', ttl: 3600 }
-    );
+    // Store under the canonical coverage key so quality-analyzer can read it
+    await this.memory.set('coverage:latest', {
+      line: payload.line,
+      branch: payload.branch,
+      function: 0,
+      statement: 0,
+      files: 0,
+    }, { persist: true });
   }
 
   private async handleSecurityAuditCompleted(event: DomainEvent): Promise<void> {

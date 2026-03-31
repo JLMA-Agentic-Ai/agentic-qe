@@ -109,8 +109,6 @@ export function generateAqeEnvVars(config: AQEInitConfig): Record<string, string
  */
 export function generateV3SettingsSections(config: AQEInitConfig, projectRoot?: string): Record<string, unknown> {
   const domains = config.domains?.enabled || [];
-  const fallback = projectRoot ? `echo ${JSON.stringify(projectRoot)}` : 'pwd';
-
   return {
     aqe: {
       version: config.version ?? '3.0.0',
@@ -119,18 +117,14 @@ export function generateV3SettingsSections(config: AQEInitConfig, projectRoot?: 
     },
     statusLine: {
       type: 'command',
-      command: `node "$(git rev-parse --show-toplevel 2>/dev/null || ${fallback})/.claude/helpers/statusline-v3.cjs" 2>/dev/null || echo "▊ Agentic QE v3"`,
+      command: 'sh -c \'node "${CLAUDE_PROJECT_DIR:-.}/.claude/helpers/statusline-v3.cjs" 2>/dev/null || echo "▊ Agentic QE v3"\'',
       refreshMs: 5000,
       enabled: true,
     },
     // permissions are union-merged in 07-hooks.ts — not set here to avoid overwriting user entries (#362)
     _aqePermissions: [
-      'Bash(npx ruflo:*)',
-      'Bash(npx @ruflo/cli:*)',
-      'Bash(npx claude-flow:*)',
-      'Bash(npx @claude-flow/cli:*)',
-      'mcp__ruflo__:*',
-      'mcp__claude-flow__:*',
+      'Bash(npx agentic-qe:*)',
+      'Bash(npx @anthropics/agentic-qe:*)',
       'mcp__agentic-qe__*',
     ],
     includeCoAuthoredBy: true,

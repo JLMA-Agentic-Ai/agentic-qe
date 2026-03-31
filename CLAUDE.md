@@ -21,7 +21,7 @@
 - ALWAYS verify integrity after operations: `sqlite3 file.db "PRAGMA integrity_check; SELECT COUNT(*) FROM qe_patterns;"`
 - ALWAYS remove stale WAL/SHM files when restoring: `rm -f file.db-wal file.db-shm`
 - When fixing sync/migration code, test against a COPY of the database, never the original
-- The `.agentic-qe/memory.db` contains 150K+ irreplaceable learning records — treat it like production data
+- The `.agentic-qe/memory.db` contains 1K+ irreplaceable learning records — treat it like production data
 
 ## File Organization
 
@@ -52,7 +52,7 @@
 
 ## AQE Project Scope
 
-- This project contains ~80 AQE/QE skills and separate Claude Flow platform skills
+- This project contains ~84 AQE/QE skills and separate Claude Flow platform skills
 - When working with skills, ALWAYS distinguish between AQE/QE skills and Claude Flow platform skills
 - Only count/modify AQE skills unless explicitly told otherwise — do NOT include Claude Flow platform skills
 - AQE skills live under `.claude/skills/` but exclude platform infrastructure skills (v3-*, flow-nexus-*, agentdb-*, reasoningbank-*, swarm-*)
@@ -205,7 +205,7 @@ npx ruflo init --wizard
 npx ruflo agent spawn -t coder --name my-coder
 npx ruflo swarm init --v3-mode
 npx ruflo memory search --query "authentication patterns"
-npx ruflo doctor --fix
+aqe health
 ```
 
 ## Available Agents (60+ Types)
@@ -246,7 +246,7 @@ npx ruflo memory retrieve --key "pattern-auth" --namespace patterns
 ```bash
 claude mcp add ruflo -- npx -y ruflo@3.5.18
 npx ruflo daemon start
-npx ruflo doctor --fix
+aqe health
 ```
 
 ## Claude Code vs CLI Tools

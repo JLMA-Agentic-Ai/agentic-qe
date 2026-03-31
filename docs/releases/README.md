@@ -4,6 +4,18 @@ All Agentic QE release notes organized by version.
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| [v3.8.14](v3.8.14.md) | 2026-03-31 | SQL injection fix, remove faker from generators (~6 MB), 3 P0 blockers resolved |
+| [v3.8.13](v3.8.13.md) | 2026-03-30 | Code intelligence CLI (complexity, --incremental, --git-since), security fix, doc cleanup |
+| [v3.8.12](v3.8.12.md) | 2026-03-29 | RuVector Phase 5: pattern intelligence, graph learning, scale optimization |
+| [v3.8.11](v3.8.11.md) | 2026-03-27 | YAML pipelines, heartbeat CLI, economic routing, session cache (Tier 3) |
+| [v3.8.10](v3.8.10.md) | 2026-03-26 | Fix coverage data pipeline — eliminate fabricated scores, unify key ecosystem |
+| [v3.8.9](v3.8.9.md) | 2026-03-25 | Multi-language coverage parsers, SHA-256 witness security, P1 scale benchmarks |
+| [v3.8.8](v3.8.8.md) | 2026-03-24 | MCP-free agents, `aqe memory` CLI, WASM parsers, skill description improvements |
+| [v3.8.7](v3.8.7.md) | 2026-03-23 | Unified hypergraph persistence, CLI/MCP query tools, code index extractor |
+| [v3.8.6](v3.8.6.md) | 2026-03-23 | Security ReDoS fixes, flaky timer elimination, module decomposition |
+| [v3.8.5](v3.8.5.md) | 2026-03-21 | Both P1 items resolved, structured logging, hooks decomposition, test stability |
+| [v3.8.4](v3.8.4.md) | 2026-03-19 | P0 security fixes, DB corruption repair, 30-40% smaller bundles, CI parallelization |
+| [v3.8.3](v3.8.3.md) | 2026-03-18 | ADR-086 skill overhaul (84 skills), 5 new skills, 7 bug fixes |
 | [v3.8.2](v3.8.2.md) | 2026-03-17 | 8 bug fixes from user testing, validation pipeline helper, ruflo rebrand |
 | [v3.8.1](v3.8.1.md) | 2026-03-17 | Fix MCP tool prefix mismatch in 8 agent files, permission pattern fix |
 | [v3.8.0](v3.8.0.md) | 2026-03-16 | RuVector: native HNSW (150x faster), neural routing, coherence safety gates |

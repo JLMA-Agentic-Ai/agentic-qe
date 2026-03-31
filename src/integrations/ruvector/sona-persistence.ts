@@ -278,7 +278,9 @@ export class PersistentSONAEngine {
         );
 
         // Restore Fisher state from SQLite if available
-        const saved = this.loadFisherMatrix(this.config.domain);
+        // Use prepared statement directly — ensureInitialized() would throw
+        // because this.initialized is not yet set during _doInitialize()
+        const saved = this._loadFisherMatrixUnsafe(this.config.domain);
         if (saved) {
           const engine = this.baseEngine.getThreeLoopEngine();
           if (engine) {
@@ -815,6 +817,58 @@ export class PersistentSONAEngine {
   }
 
   // ==========================================================================
+  // Three-Loop Engine Pass-Through (instantAdapt -> recordOutcome -> backgroundConsolidate)
+  // ==========================================================================
+
+  /**
+   * Perform instant per-request MicroLoRA adaptation (Loop 1).
+   *
+   * Delegates to the three-loop engine's instant loop.
+   * Returns null if the three-loop engine is not initialized.
+   *
+   * @param requestFeatures - Feature vector for the current request
+   * @returns Adaptation result, or null if three-loop engine not initialized
+   */
+  instantAdapt(requestFeatures: number[]): import('./sona-three-loop.js').AdaptationResult | null {
+    this.ensureInitialized();
+    return this.baseEngine.instantAdapt(requestFeatures);
+  }
+
+  /**
+   * Record the outcome of a request for REINFORCE-style gradient estimation (Loop 1b).
+   *
+   * Must be called after instantAdapt() with the reward signal.
+   * Delegates to the three-loop engine's recordOutcome().
+   *
+   * @param reward - Scalar reward (e.g., 1.0 for success, -1.0 for failure)
+   * @param requestIndex - Optional requestIndex from AdaptationResult for matching
+   */
+  recordOutcome(reward: number, requestIndex?: number): void {
+    this.ensureInitialized();
+    this.baseEngine.recordOutcome(reward, requestIndex);
+  }
+
+  /**
+   * Run background consolidation cycle (Loop 2).
+   *
+   * Delegates to the three-loop engine's background loop.
+   * Returns null if the three-loop engine is not initialized.
+   *
+   * @returns Consolidation result, or null if three-loop engine not initialized
+   */
+  backgroundConsolidate(): import('./sona-three-loop.js').ConsolidationResult | null {
+    this.ensureInitialized();
+    return this.baseEngine.backgroundConsolidate();
+  }
+
+  /**
+   * Check if the three-loop engine is initialized and active.
+   */
+  isThreeLoopEnabled(): boolean {
+    return this.baseEngine.isThreeLoopEnabled();
+  }
+
+  // ==========================================================================
   // Learning Operations (Delegates to base engine)
   // ==========================================================================
 
@@ -1110,6 +1164,30 @@ export class PersistentSONAEngine {
 
     const stmt = this.prepared.get('getFisher');
     if (!stmt) throw new Error('Fisher get statement not prepared');
+
+    const row = stmt.get(domain) as SONAFisherRow | undefined;
+    if (!row) return null;
+
+    return {
+      fisherDiagonal: this.bufferToFloat32(row.fisher_diagonal),
+      optimalParams: this.bufferToFloat32(row.optimal_params),
+      baseWeights: row.base_weights ? this.bufferToFloat32(row.base_weights) : null,
+      dimension: row.dimension,
+      taskBoundaries: row.task_boundaries,
+      consolidationCycles: row.consolidation_cycles,
+      requestCount: row.request_count,
+      ewcLambda: row.ewc_lambda,
+    };
+  }
+
+  /**
+   * Internal variant of loadFisherMatrix that skips ensureInitialized().
+   * Used only during _doInitialize() when DB and statements are ready
+   * but this.initialized has not been set yet.
+   */
+  private _loadFisherMatrixUnsafe(domain: string): ReturnType<typeof this.loadFisherMatrix> {
+    const stmt = this.prepared.get('getFisher');
+    if (!stmt) return null;
 
     const row = stmt.get(domain) as SONAFisherRow | undefined;
     if (!row) return null;

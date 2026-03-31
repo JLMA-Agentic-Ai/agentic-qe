@@ -7,6 +7,7 @@
  * - QESONA: Learns and adapts code patterns for improved intelligence
  */
 
+import { LoggerFactory } from '../../logging/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { Result, err, DomainEvent } from '../../shared/types';
 import { toError } from '../../shared/error-utils.js';
@@ -273,6 +274,8 @@ type CodeIntelligenceWorkflowType = 'index' | 'search' | 'impact' | 'dependency'
 /**
  * CQ-002: Extends BaseDomainCoordinator
  */
+const logger = LoggerFactory.create('code-intelligence');
+
 export class CodeIntelligenceCoordinator
   extends BaseDomainCoordinator<CoordinatorConfig, CodeIntelligenceWorkflowType>
   implements ICodeIntelligenceCoordinator
@@ -346,7 +349,7 @@ export class CodeIntelligenceCoordinator
         enableCache: true,
         cacheTTL: 300000, // 5 minutes
       });
-      console.log('[CodeIntelligence] MetricCollector initialized for real code metrics');
+      logger.info('MetricCollector initialized for real code metrics');
     }
 
     // V3: Initialize Hypergraph Engine for intelligent code analysis (GOAP Action 7)
@@ -372,7 +375,7 @@ export class CodeIntelligenceCoordinator
       const path = await import('path');
       const { findProjectRoot } = await import('../../kernel/unified-memory.js');
       const projectRoot = findProjectRoot();
-      const dbPath = this.config.hypergraphDbPath || path.join(projectRoot, '.agentic-qe', 'hypergraph.db');
+      const dbPath = this.config.hypergraphDbPath || path.join(projectRoot, '.agentic-qe', 'memory.db');
 
       // Ensure directory exists
       const dir = path.dirname(dbPath);
@@ -391,12 +394,23 @@ export class CodeIntelligenceCoordinator
         enableVectorSearch: this.config.enableGNN,
       });
 
-      console.log(`[CodeIntelligence] Hypergraph Engine initialized at ${dbPath}`);
+      logger.info(`Hypergraph Engine initialized at ${dbPath}`);
     } catch (error) {
-      console.error('[CodeIntelligence] Failed to initialize Hypergraph Engine:', error);
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.warn(`Hypergraph Engine initialization failed (feature degraded): ${msg}`);
       // Don't throw - hypergraph is optional, coordinator should still work
       this.hypergraph = undefined;
       this.hypergraphDb = undefined;
+
+      // Publish degradation event so health checks can surface it
+      if (this.config.publishEvents) {
+        const event = createEvent(
+          'code-intelligence.HypergraphDegraded',
+          'code-intelligence',
+          { reason: msg }
+        );
+        this.eventBus.publish(event).catch(() => {});
+      }
     }
   }
 
@@ -429,9 +443,9 @@ export class CodeIntelligenceCoordinator
             maxPatterns: 10000,
             minConfidence: 0.6,
           });
-          console.log('[CodeIntelligence] PersistentSONAEngine initialized for code pattern learning');
+          logger.info('PersistentSONAEngine initialized for code pattern learning');
         } catch (error) {
-          console.error('[CodeIntelligence] Failed to initialize PersistentSONAEngine:', error);
+          logger.error('Failed to initialize PersistentSONAEngine:', error instanceof Error ? error : undefined);
           // Continue without SONA - it's optional
           this.sonaEngine = undefined;
         }
@@ -439,7 +453,7 @@ export class CodeIntelligenceCoordinator
 
       this.rlInitialized = true;
     } catch (error) {
-      console.error('Failed to initialize RL integrations:', error);
+      logger.error('Failed to initialize RL integrations:', error instanceof Error ? error : undefined);
       throw error;
     }
   }
@@ -463,7 +477,7 @@ export class CodeIntelligenceCoordinator
         await this.sonaEngine.close();
         this.sonaEngine = undefined;
       } catch (error) {
-        console.error('[CodeIntelligence] Error closing SONA engine:', error);
+        logger.error('Error closing SONA engine:', error instanceof Error ? error : undefined);
       }
     }
 
@@ -472,7 +486,7 @@ export class CodeIntelligenceCoordinator
       try {
         this.hypergraphDb.close();
       } catch (error) {
-        console.error('[CodeIntelligence] Error closing hypergraph database:', error);
+        logger.error('Error closing hypergraph database:', error instanceof Error ? error : undefined);
       }
       this.hypergraphDb = undefined;
     }
@@ -504,7 +518,7 @@ export class CodeIntelligenceCoordinator
 
       // ADR-047: Check topology health before expensive operations
       if (this.config.enableMinCutAwareness && !this.isTopologyHealthy()) {
-        console.warn(`[${this.domainName}] Topology degraded, using conservative strategy`);
+        logger.warn(`Topology degraded, using conservative strategy`);
         // Continue with reduced parallelism when topology is unhealthy
       }
 
@@ -550,11 +564,27 @@ export class CodeIntelligenceCoordinator
           }
         }
 
-        this.updateWorkflowProgress(workflowId, 80);
+        this.updateWorkflowProgress(workflowId, 70);
 
         // Index content for semantic search
         if (request.paths.length > 0) {
           await this.indexForSemanticSearch(request.paths);
+        }
+
+        this.updateWorkflowProgress(workflowId, 85);
+
+        // V3: Rebuild hypergraph from indexed files (keeps hypergraph in sync with KG)
+        if (this.config.enableHypergraph && this.hypergraph && request.paths.length > 0) {
+          try {
+            const codeIndexResult = await this.buildCodeIndexResultFromPaths(request.paths);
+            if (codeIndexResult.files.length > 0) {
+              await this.hypergraph.buildFromIndexResult(codeIndexResult);
+              logger.info(`Hypergraph rebuilt from ${codeIndexResult.files.length} indexed files`);
+            }
+          } catch (hgError) {
+            // Non-fatal: hypergraph is supplementary to the core indexing pipeline
+            logger.warn(`Hypergraph rebuild skipped: ${hgError instanceof Error ? hgError.message : hgError}`);
+          }
         }
 
         this.updateWorkflowProgress(workflowId, 100);
@@ -598,7 +628,7 @@ export class CodeIntelligenceCoordinator
       if (this.config.enableSONA && this.sonaEngine) {
         const pattern = await this.adaptSearchPattern(request);
         if (pattern.success && pattern.pattern) {
-          console.log(`[SONA] Adapted search pattern with ${pattern.similarity.toFixed(3)} similarity`);
+          logger.info(`Adapted search pattern with ${pattern.similarity.toFixed(3)} similarity`);
         }
       }
 
@@ -654,7 +684,7 @@ export class CodeIntelligenceCoordinator
 
       // ADR-047: Check topology health before expensive operations
       if (this.config.enableMinCutAwareness && !this.isTopologyHealthy()) {
-        console.warn(`[${this.domainName}] Topology degraded, using conservative impact analysis`);
+        logger.warn(`Topology degraded, using conservative impact analysis`);
       }
 
       // ADR-047: Check if operations should be paused due to critical topology
@@ -840,7 +870,7 @@ export class CodeIntelligenceCoordinator
         similarity: result.similarity,
       };
     } catch (error) {
-      console.error('Failed to adapt search pattern:', error);
+      logger.error('Failed to adapt search pattern:', error instanceof Error ? error : undefined);
       return { success: false, pattern: null, similarity: 0 };
     }
   }
@@ -893,9 +923,9 @@ export class CodeIntelligenceCoordinator
         }
       );
 
-      console.log(`[SONA] Stored impact pattern ${pattern.id}`);
+      logger.info(`Stored impact pattern ${pattern.id}`);
     } catch (error) {
-      console.error('Failed to store impact pattern:', error);
+      logger.error('Failed to store impact pattern:', error instanceof Error ? error : undefined);
     }
   }
 
@@ -1195,7 +1225,7 @@ export class CodeIntelligenceCoordinator
         this.completeWorkflow(workflowId);
 
         // The bridge already publishes the event, but we can add correlation here
-        console.log(
+        logger.info(
           `[CodeIntelligenceCoordinator] C4 diagrams generated for ${projectPath}: ` +
             `${result.value.components.length} components, ` +
             `${result.value.externalSystems.length} external systems`
@@ -1276,7 +1306,7 @@ export class CodeIntelligenceCoordinator
     }
 
     try {
-      console.log(`[CodeIntelligence] Collecting real metrics for ${projectPath}`);
+      logger.info(`Collecting real metrics for ${projectPath}`);
 
       // Collect all metrics using actual tooling
       const metrics = await this.metricCollector.collectAll(projectPath);
@@ -1286,14 +1316,14 @@ export class CodeIntelligenceCoordinator
         ? metrics.toolsUsed.join(', ')
         : metrics.loc.source === 'node-native' ? 'node-native' : 'fallback';
 
-      console.log(
+      logger.info(
         `[CodeIntelligence] Real metrics collected: ` +
           `${metrics.loc.total} LOC, ${metrics.tests.total} tests, ` +
           `tools: ${toolsLabel}`
       );
 
       if (metrics.loc.source === 'node-native') {
-        console.log(
+        logger.info(
           `[CodeIntelligence] Using Node.js-native line counter (no cloc/tokei needed)`
         );
       }
@@ -1319,7 +1349,7 @@ export class CodeIntelligenceCoordinator
       return { success: true, value: metrics };
     } catch (error) {
       const errorObj = toError(error);
-      console.error('[CodeIntelligence] Failed to collect metrics:', errorObj.message);
+      logger.error('Failed to collect metrics:');
       return err(errorObj);
     }
   }
@@ -1499,6 +1529,19 @@ export class CodeIntelligenceCoordinator
       return baseAnalysis;
     }
     return HypergraphHelpers.enhanceImpactWithHypergraph(this.hypergraph, request, baseAnalysis);
+  }
+
+  // ============================================================================
+  // Hypergraph Helpers
+  // ============================================================================
+
+  /**
+   * Build a CodeIndexResult from file paths using shared lightweight regex extraction.
+   * Used to keep hypergraph in sync when index() is called.
+   */
+  private async buildCodeIndexResultFromPaths(paths: string[]): Promise<CodeIndexResult> {
+    const { extractCodeIndex } = await import('../../shared/code-index-extractor.js');
+    return extractCodeIndex(paths);
   }
 
   // ============================================================================

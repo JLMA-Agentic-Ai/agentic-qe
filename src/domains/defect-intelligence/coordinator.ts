@@ -9,6 +9,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { LoggerFactory } from '../../logging/index.js';
 import { Result, err, ok, DomainName } from '../../shared/types';
 import { toError } from '../../shared/error-utils.js';
 import {
@@ -66,6 +67,10 @@ import {
   type BaseDomainCoordinatorConfig,
   type BaseWorkflowStatus,
 } from '../base-domain-coordinator.js';
+
+// R12: Granger Causality for temporal failure prediction (ADR-087)
+import { getRuVectorFeatureFlags } from '../../integrations/ruvector/feature-flags.js';
+import { GrangerAnalyzer } from '../../integrations/ruvector/temporal-causality.js';
 
 /**
  * Interface for the defect intelligence coordinator
@@ -135,6 +140,9 @@ type DefectWorkflowType = 'predict' | 'analyze' | 'regression' | 'cluster' | 'le
  * - Multi-model consensus for high-confidence predictions (MM-001)
  * - CQ-002: Extends BaseDomainCoordinator
  */
+
+const logger = LoggerFactory.create('defect-intelligence');
+
 export class DefectIntelligenceCoordinator
   extends BaseDomainCoordinator<CoordinatorConfig, DefectWorkflowType>
   implements IDefectIntelligenceCoordinator
@@ -142,6 +150,9 @@ export class DefectIntelligenceCoordinator
   private readonly predictor: IDefectPredictorService;
   private readonly patternLearner: IPatternLearnerService;
   private readonly rootCauseAnalyzer: IRootCauseAnalyzerService;
+
+  // R12: Accumulated test execution history for Granger causality (ADR-087)
+  private readonly testExecutionHistory: Map<string, { timestamps: number[]; outcomes: number[] }> = new Map();
 
   constructor(
     eventBus: EventBus,
@@ -252,7 +263,7 @@ export class DefectIntelligenceCoordinator
 
       // V3: Check topology health before proceeding
       if (this.config.enableMinCutAwareness && this.minCutMixin.shouldPauseOperations()) {
-        console.warn('[DefectIntelligence] Topology is critical, proceeding with caution');
+        logger.warn('Topology is critical, proceeding with caution');
       }
 
       // Check if we can spawn agents
@@ -294,6 +305,46 @@ export class DefectIntelligenceCoordinator
         // Auto-analyze high-risk predictions
         if (this.config.enablePatternLearning) {
           await this.autoAnalyzeHighRisk(enhancedResult);
+        }
+
+        // R12: Accumulate test history and run Granger causality (ADR-087)
+        if (getRuVectorFeatureFlags().useGrangerCausality) {
+          try {
+            const now = Date.now();
+            // Accumulate prediction outcomes into per-test history
+            for (const p of enhancedResult.predictions) {
+              const history = this.testExecutionHistory.get(p.file) ?? { timestamps: [], outcomes: [] };
+              history.timestamps.push(now);
+              history.outcomes.push(p.probability > 0.5 ? 0 : 1);
+              // Cap history at 500 points per test
+              if (history.timestamps.length > 500) {
+                history.timestamps.splice(0, history.timestamps.length - 500);
+                history.outcomes.splice(0, history.outcomes.length - 500);
+              }
+              this.testExecutionHistory.set(p.file, history);
+            }
+
+            // Run Granger analysis when we have enough accumulated history
+            const eligibleSeries = Array.from(this.testExecutionHistory.entries())
+              .filter(([, h]) => h.timestamps.length >= 30)
+              .map(([testId, h]) => ({ testId, timestamps: h.timestamps, outcomes: h.outcomes }));
+
+            if (eligibleSeries.length >= 3) {
+              const analyzer = new GrangerAnalyzer({ maxLag: 5, alpha: 0.05 });
+              const causalLinks = analyzer.analyzeCausality(eligibleSeries);
+              if (causalLinks.length > 0) {
+                logger.info('Granger causality found causal links in defect predictions', {
+                  linkCount: causalLinks.length,
+                  historyDepth: eligibleSeries[0].timestamps.length,
+                  topLink: `${causalLinks[0].sourceTestId} → ${causalLinks[0].targetTestId} (lag=${causalLinks[0].lag}, p=${causalLinks[0].pValue.toFixed(4)})`,
+                });
+              }
+            }
+          } catch (grangerErr) {
+            logger.warn('Granger causality analysis failed (non-fatal)', {
+              error: grangerErr instanceof Error ? grangerErr.message : 'unknown',
+            });
+          }
         }
 
         // Stop the agent
@@ -376,7 +427,7 @@ export class DefectIntelligenceCoordinator
             }
           } catch (error) {
             // On consensus error, include original prediction
-            console.warn(`[DefectIntelligence] Consensus verification failed for ${prediction.file}:`, error);
+            logger.warn(`Consensus verification failed for ${prediction.file}`);
             verifiedPredictions.push(prediction);
           }
         } else {
@@ -485,7 +536,7 @@ export class DefectIntelligenceCoordinator
           };
         }
       } catch (error) {
-        console.warn(`[DefectIntelligence] Consensus verification failed for root cause:`, error);
+        logger.warn('Consensus verification failed for root cause');
       }
     }
 

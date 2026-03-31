@@ -5,6 +5,222 @@ All notable changes to the Agentic QE project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.8.14] - 2026-03-31
+
+### Fixed
+
+- **Security: SQL injection in witness-chain LIMIT/OFFSET** — Parameterized LIMIT and OFFSET values in `getEntries()` query instead of string interpolation. Also handles offset-without-limit correctly via SQLite `LIMIT -1` idiom, and `limit=0` now properly returns zero rows.
+- **Removed `@faker-js/faker` from 7 production generator files** — Replaced with lightweight `test-value-helpers.ts` using only `node:crypto`. Eliminates ~6 MB runtime dependency for npm consumers. Generators now work without devDependencies installed.
+- **`aqe init` hook paths break from subfolders** — Adopted `CLAUDE_PROJECT_DIR` pattern so hook commands resolve correctly regardless of working directory.
+- **Removed ruflo permissions from `aqe init`** — Only AQE-specific entries are injected into user settings; third-party tool permissions no longer leak in.
+- **Dead MCP `server.ts` removed (911 lines)** — Eliminated unused dual-server divergence risk; production uses `MCPProtocolServer` via `entry.ts`.
+- **CI publishes without test gate** — Added mandatory unit test pass gate to `npm-publish.yml`. Removed `continue-on-error` from `optimized-ci.yml` test steps.
+- **ESLint broken in ESM project** — Renamed `.eslintrc.js` to `.eslintrc.cjs` for CommonJS compatibility.
+- **Hardcoded version `3.0.0` in MCP servers** — `protocol-server.ts` and `http-server.ts` now read version dynamically from `package.json`.
+- **Vitest process hang on native modules** — Added worker-level `afterAll` force-exit and global teardown safety net for `better-sqlite3` / `hnswlib-node` handles.
+
+### Added
+
+- **`test-value-helpers.ts`** — Zero-dependency test data generator for test-generation domain using `node:crypto` built-ins with range guards for edge cases.
+- **Pagination edge case tests** — `limit=0`, offset-without-limit, and offset-beyond-total coverage in witness-chain tests.
+- **17 unit tests for test-value-helpers** — Covers all value generators including boundary inputs and inverted ranges.
+
+## [3.8.13] - 2026-03-30
+
+### Added
+
+- **Code intelligence CLI commands** — New `aqe code complexity` action with cyclomatic, cognitive, and Halstead metrics, hotspot detection, and JSON output. New `--incremental` and `--git-since <ref>` flags for `aqe code index` enabling git-aware incremental indexing.
+- **Code intelligence section in README** — CLI Reference now documents all 7 `aqe code` commands with usage examples.
+
+### Fixed
+
+- **Security: command injection in `--git-since`** — Replaced `execSync` with `execFileSync` to prevent shell injection via user-supplied git refs (CWE-78).
+- **Control flow bug in complexity action** — Added missing `return` after `cleanupAndExit()` calls that could cause null-pointer crashes.
+- **Stale CLI references across 20 files** — Replaced non-existent `aqe kg` commands with correct `aqe code` syntax in all skill files, eval configs, docs, and catalogs. Fixed phantom agent names (`qe-knowledge-graph`, `qe-semantic-searcher`) with actual agents (`qe-kg-builder`, `qe-code-intelligence`, `qe-impact-analyzer`, `qe-code-complexity`). Replaced `ruflo doctor --fix` with `aqe health` / `aqe init` across CLAUDE.md, skills, and docs.
+- **`aqe init` MCP server setup** — Restored MCP server initialization as default behavior during `aqe init --auto`.
+- **Tool-scoping tests** — Added `hypergraph_query` to all 5 scoped agent roles to match source of truth. Fixed queen-dependency test expectations for agents without inline MCP references.
+- **`--depth` validation** — Now validates the `--depth` flag is a positive integer instead of silently passing `NaN`.
+
+### Changed
+
+- **Batched complexity analysis** — File analysis uses `Promise.all` with batch size of 8 instead of sequential processing.
+- **Shared source extensions** — Exported `SOURCE_EXTENSIONS` from `file-discovery.ts` to prevent divergence between full scan and `--git-since` paths.
+
+## [3.8.12] - 2026-03-29
+
+### Added
+
+- **RuVector Phase 5 — Pattern Intelligence (ADR-087)** — HDC pattern fingerprinting with 10K-bit binary hypervectors for O(1) XOR-based similarity, CUSUM drift detection across all 4 coherence gate types, and delta event sourcing with rollback via SQLite. EWC++ three-loop activation wired into quality-assessment, test-generation, and contract-testing coordinators.
+- **RuVector Phase 5 — Graph Learning (ADR-087)** — GraphMAE self-supervised learning with SPSA optimizer for masked graph autoencoders, Modern Hopfield networks for exponential-capacity exact pattern recall, and cold-tier GNN training with LRU-cached mini-batch trainer and file-backed larger-than-RAM graphs.
+- **RuVector Phase 5 — Scale, Optimization & Advanced Learning (ADR-087)** — Meta-learning enhancements (DecayingBeta, PlateauDetector, ParetoFront, CuriosityBonus), PageRank pattern importance scoring with citation graphs, spectral graph sparsification, reservoir replay buffer with coherence-gated admission, E-prop online learning (RL algorithm #10), and Granger causality for test failure prediction.
+- **456 new tests** across 11 test files covering all Phase 5 milestones with performance benchmarks.
+
+### Fixed
+
+- **HDC pre-filter dropping search results** — The R1 HDC fingerprint pre-filter in PatternStore search was eliminating candidates with low Hamming similarity instead of just reordering them, causing text searches to return empty results when all candidates had fingerprints.
+
+### Changed
+
+- Coherence gate module extracted from 930-line monolith into 4 focused modules under 500-line limit.
+- `RLAlgorithmType` union extended from 9 to 10 members (added `eprop`).
+- Xorshift128 PRNG extracted to shared utility for reuse across RuVector modules.
+- ADR-087 status promoted from Proposed to Active (milestones 1-4 complete).
+
+### Security
+
+- Bumped `path-to-regexp` from 0.1.12 to 0.1.13 (dependabot).
+
+## [3.8.11] - 2026-03-27
+
+### Added
+
+- **YAML deterministic QE pipelines** — Declarative, token-free quality gates with approval steps, auto-approve timeouts, and 4 built-in SQL-only actions (quality-gate, coverage-threshold, pattern-health, routing-accuracy). Full CLI support via `aqe pipeline load/validate/run/list/status/approve/reject`.
+- **Heartbeat CLI and MCP integration** — Manage the token-free heartbeat scheduler with `aqe heartbeat status/run-now/history/log/pause/resume` and 3 MCP tools. Includes history persistence and daily log viewing.
+- **Economic routing model** — Quality-per-dollar tier scoring with budget-aware selection, cost-adjusted rewards for the neural router, and EMA-smoothed quality estimates. Opt-in via `enableEconomicRouting()`. CLI: `aqe routing economics/accuracy/metrics`. MCP: `routing_economics`.
+- **Session operation cache** — O(1) fingerprint-based cache for repeated operations, running before HNSW similarity search. SHA-256 fingerprinting with TTL, capacity eviction, and cross-session persistence via SQLite. Delivers 40-60% token savings on repeated tasks.
+
+### Fixed
+
+- **Path traversal in heartbeat log** — CLI `heartbeat log --date` now validates date format (`YYYY-MM-DD`) to prevent directory traversal attacks, matching the MCP handler's validation.
+- **Approval gate cleanup** — Pending approval gates are now properly resolved when a workflow is cancelled, preventing timer leaks and dangling promises.
+- **Economic config validation** — Routing config weights are clamped to valid ranges and normalized to sum to 1.0, preventing score inflation from invalid inputs.
+- **Sort mutation in tier selection** — `selectTier()` fallback paths no longer mutate the original scores array, ensuring consistent `economicScore` descending order in returned results.
+
+## [3.8.10] - 2026-03-26
+
+### Fixed
+
+- **Coverage data pipeline** — Coverage data now flows correctly from test execution through to quality scores. Previously, `quality_assess` reported fabricated coverage (up to 95%) because it read from keys that nothing wrote to. All 5 orphaned key conventions have been unified into a consistent `coverage:latest`, `coverage:previous`, and `coverage:file:{path}` ecosystem.
+- **Test runner coverage collection** — `test_execute_parallel` now passes `--coverage` flags to vitest and jest, and reads `coverage-summary.json` from disk when runners write coverage to files rather than stdout.
+- **Per-file coverage storage** — Coverage data is now stored via the key-value API (not just the vector store), so quality-analyzer, defect-predictor, and defect-investigation can all read per-file coverage.
+- **Coverage trend detection** — `coverage:previous` is now correctly rotated before each new snapshot, enabling quality-gate trend detection that was previously always reporting "stable".
+- **Quality score fairness** — Projects without coverage tooling no longer receive a false 25-point quality score penalty. Missing coverage reports as unavailable (-1) rather than 0%.
+- **Coverage tracker accuracy** — The coverage-tracker worker now reads real data from `coverage:latest` instead of returning hardcoded fake values.
+
+## [3.8.9] - 2026-03-25
+
+### Added
+
+- **Multi-language coverage parsers** — 6 new parsers for JaCoCo (Java/Kotlin), dotcover (C#/.NET), Tarpaulin (Rust), Go cover, Kover (Kotlin/JVM), and xcresult (Swift/iOS), extending coverage analysis beyond JavaScript/TypeScript.
+- **Language-aware agent routing** — Agent routing now considers source language when selecting models and strategies, with MCP schema support for the `language` parameter.
+- **RuVector P1 scale benchmarks** — Production-scale benchmarks for 10K/100K vector operations, concurrency stress tests, and HNSW memory usage display in `aqe ruvector status`.
+- **Knowledge graph language extensions** — Added Swift and C# file extension mappings for broader polyglot code intelligence.
+
+### Fixed
+
+- **SHA-256 witness hashing** — Replaced insecure djb2 hash with SHA-256 in the witness adapter for cryptographic integrity of coherence proofs.
+- **Coherence gate witness persistence** — Witnesses are now persisted to the proof envelope, ensuring audit trail continuity across sessions.
+- **Hardcoded signing key removed** — Eliminated a hardcoded key from the coherence gate; signing keys are now derived from configuration.
+- **Benchmark output formatting** — Fixed RuVector benchmark result display to correctly report metrics.
+
+## [3.8.8] - 2026-03-24
+
+### Added
+
+- **`aqe memory` CLI command** — New CLI command with 7 subcommands (store, get, search, list, delete, share, usage) providing full parity with MCP memory tools. Agents and skills can now operate without the MCP server.
+- **Web tree-sitter WASM parsers** — Added WASM-based parsers for Python, Java, C#, Rust, and Swift, enabling cross-language code intelligence without native binaries.
+- **`--with-mcp` init flag** — MCP server configuration is now opt-in during `aqe init`. CLI commands work standalone without MCP.
+
+### Changed
+
+- **MCP dependency eliminated from agents/skills** — Migrated 431 `mcp__agentic-qe__*` references across 230+ agent and skill definitions to use CLI commands (`aqe task`, `aqe agent`, `aqe fleet`, `aqe memory`, `aqe coverage`, etc.). Agents now work without an MCP server running.
+- **Skill descriptions enriched** — 18 QE skill descriptions rewritten with third-person voice, concrete action verbs, and trigger term keywords for better activation and discoverability.
+- **Skill names standardized** — 15 QE skills renamed to kebab-case format matching their directory names (e.g., "QE Test Generation" to "qe-test-generation").
+- **Platform parity** — All changes synced across `.claude/`, `assets/`, and `.kiro/` platform directories.
+
+## [3.8.7] - 2026-03-23
+
+### Added
+
+- **Hypergraph CLI commands** — New `aqe hypergraph` subcommands (`stats`, `untested`, `impacted`, `gaps`) for querying the code knowledge hypergraph directly from the terminal.
+- **Hypergraph MCP tool** — `hypergraph_query` MCP tool exposes the same queries to AI agents, added to 5 agent role scopes.
+- **Code index extractor** — Shared async batched extractor for functions, classes, interfaces, arrow functions, and method definitions with 12 unit tests.
+- **Shell completions for hypergraph** — Bash, Zsh, Fish, and PowerShell completion support for hypergraph subcommands.
+
+### Fixed
+
+- **Unified hypergraph persistence** — Eliminated separate `hypergraph.db` file; all hypergraph data now persists in the unified `memory.db` alongside other QE tables.
+- **Stale governance shard paths** — Updated 12 governance shards + constitution from `v3/src/domains/` to `src/domains/`.
+- **Init phase 06 hypergraph bootstrap** — `aqe init --auto` now builds hypergraph tables during code intelligence initialization.
+- **Connection leak in CLI handler** — Added `ensureInitialized` guard and proper cleanup in hypergraph CLI handler.
+- **HypergraphDegraded event** — Coordinator now publishes degradation events on init failure for observability.
+
+## [3.8.6] - 2026-03-23
+
+### Fixed
+
+- **4 CodeQL ReDoS alerts resolved** — Eliminated all `js/polynomial-redos` high-severity vulnerabilities in security validators using negated character classes and unambiguous regex patterns.
+- **58 real setTimeout calls eliminated** — Replaced with `vi.useFakeTimers()` in the top 5 flaky test files for deterministic test execution.
+- **time-crystal.ts decomposed** — Split 1,714-line module into 6 focused modules (max 447 lines) with backward-compatible re-exports.
+- **qe-reasoning-bank.ts decomposed** — Split 1,941-line module into 7 focused modules (max 738 lines) with backward-compatible re-exports.
+
+## [3.8.5] - 2026-03-21
+
+### Fixed
+
+- **Both P1 items from v3.8.3 QE swarm analysis resolved** — Closes the highest-priority technical debt identified by the 10-agent parallel quality audit.
+- **401 console.* calls replaced with structured logger** — Domain layer now uses the structured logging framework at `src/logging/` instead of raw console calls, enabling log levels, structured output, and centralized log management (#374 P1 #8).
+- **hooks.ts decomposed from 1,108 lines into 9 handler modules** — Cyclomatic complexity reduced from CC=100 to manageable per-handler functions under `hooks-handlers/` (#374 P1 #10).
+- **104 test files missing afterEach cleanup** — Added proper cleanup to prevent test pollution and reduce flaky test indicators (#374 P2).
+- **11 test files using real setTimeout without fake timers** — Added `vi.useFakeTimers()` to eliminate timing-dependent flakiness (#374 P2).
+- **3 DDD boundary violations in security validators** — Moved validators from `mcp/security/` to `shared/security/` with re-exports for backward compatibility (#374 P2).
+- **CI timeout guards** — Added `timeout 480` to remaining 5 unguarded `npm run` commands and OS-level timeout guards for hanging tests (#350).
+
+## [3.8.4] - 2026-03-19
+
+### Fixed
+
+- **Command injection vulnerability (P0)** — Replaced `exec()` with `execFile()` + allowlist in test-verifier.ts to eliminate CWE-78 shell injection risk.
+- **SQL injection surface (P0)** — Unified SQL table allowlists across sql-safety.ts, unified-memory.ts, and ruvector/brain-shared.ts; added `validateTableName()` to all 7 SQL interpolation sites.
+- **70 unguarded process.exit() calls (P1)** — Replaced with return/throw in learning.ts (45) and hooks.ts (25) so cleanup handlers execute properly.
+- **Database corruption** — Rebuilt corrupted memory.db (82 corrupt pages causing 43% dream cycle failures).
+- **15K junk learning patterns** — Purged benchmark/test artifacts (bench-*, dream novel_association, test patterns) that inflated pattern counts and degraded quality scoring.
+- **Benchmark test isolation** — Added `useUnified: false` to prevent benchmark runs from polluting the production learning database.
+- **Statusline pattern inflation** — Fixed statusline to count only meaningful patterns instead of including junk and cross-table sums.
+- **CI timeouts** — Split monolithic CI jobs into parallel shards: Optimized CI into 6 jobs, MCP tests into 4 shards, cutting wall-clock from 25+ min to ~15 min.
+- **CI concurrency groups** — PRs now cancel stale runs; main branch runs no longer cancel each other on rapid pushes.
+
+### Changed
+
+- **Bundle size reduced** — Enabled minification: CLI 9.8→6.9 MB (-30%), MCP 12→7.2 MB (-40%).
+- **@faker-js/faker moved to devDependencies** — ~8 MB savings from production install.
+- **Verification scripts hardened** — `verify:counts`, `verify:agent-skills`, and `verify:features` now perform real checks with non-zero exit codes on failure.
+- **4 perma-failing scheduled workflows disabled** — n8n-workflow-ci, sauce-demo-e2e, qcsd-production-trigger, and benchmark schedules disabled (manual dispatch still available).
+- **Quality scoring improved** — CLI-hook learning now uses context-aware scoring (source/speed) instead of hardcoded 0.7/0.3.
+
+### Added
+
+- **12 QE swarm analysis reports** — Comprehensive v3.8.3 quality audit covering code complexity, security, performance, test quality, SFDIPOT, dependencies, API contracts, architecture/DDD, accessibility, and brutal honesty.
+
+## [3.8.3] - 2026-03-18
+
+### Fixed
+
+- **Portable hook commands** — `aqe init` no longer embeds the host machine's absolute path into `.claude/settings.json` hook commands. Commands now use simple relative paths (`node .claude/helpers/brain-checkpoint.cjs`), making settings fully portable across machines. ([#369](https://github.com/proffesor-for-testing/agentic-qe/issues/369))
+- **SONA persistence initialization** — Fixed circular `ensureInitialized()` call during `PersistentSONAEngine._doInitialize()` that caused all 31 sona-persistence tests to fail when `useSONAThreeLoop` flag was enabled by default.
+- **RuVector feature flag test compatibility** — Updated compressed-hnsw and temporal-compression tests to explicitly set flag state instead of assuming defaults, fixing 9 test failures introduced when v3.8.0 enabled all flags by default.
+- **CI timeout and contract test path** — Resolved CI workflow timeouts and broken contract test path. ([#350](https://github.com/proffesor-for-testing/agentic-qe/issues/350))
+- **OpenCode config schema** — `aqe init --with-opencode` now generates valid `opencode.json` matching OpenCode's `McpLocal.strict()` zod schema (`command` as string array, `environment` instead of `env`, no extra `args` field). ([#370](https://github.com/proffesor-for-testing/agentic-qe/issues/370))
+- **Infra-healing fallback playbook** — Fixed field name mismatches (`check` → `healthCheck`, added `verify`) in the hardcoded fallback playbook that caused a TypeError on every MCP startup. ([#371](https://github.com/proffesor-for-testing/agentic-qe/issues/371))
+- **Fleet init crash** — `LearningOptimizationCoordinator` now gracefully degrades when SONA init fails, matching the other 6 coordinators. Combined with the circular init fix, fleet initialization succeeds on MCP startup. ([#372](https://github.com/proffesor-for-testing/agentic-qe/issues/372))
+
+### Added
+
+- **ADR-086 skill design standards** — Major overhaul of all 84 QE skills based on Anthropic's "Lessons from Building Claude Code" skill design guidance. Skills are now folder-based systems with progressive disclosure, gotchas, composition, config, and run history.
+- **5 new skills** — `test-failure-investigator`, `coverage-drop-investigator`, `e2e-flow-verifier`, `test-metrics-dashboard`, and `skill-stats` fill previously missing categories.
+- **5 on-demand hook skills** — `strict-tdd`, `no-skip`, `coverage-guard`, `freeze-tests`, and `security-watch` with executable scripts that activate via slash commands.
+- **Gotchas sections** — 30 skills now include battle-tested failure data from production learning records.
+- **Reference and template files** — 10 reference/template files across 7 skills (OWASP top 10, k6 configs, mutation operators, security report templates, etc.).
+- **Skill composition** — Cross-references added to 10 key skills showing how to chain skills together for complex workflows.
+- **Config and run-history** — `config.json` with `_setupPrompt` added to 7 skills; `run-history.json` with write instructions added to 5 metric-producing skills.
+
+### Changed
+
+- **Skill descriptions rewritten** — All 84 skill descriptions now use "Use when..." trigger conditions for better auto-detection.
+- **Textbook knowledge stripped** — 892 lines of generic content removed from 15 skills (26% size reduction) to focus on actionable guidance.
+- **3 redundant skills removed** — `qe-contract-testing` (→ `contract-testing`), `qe-security-compliance` (→ `security-testing`), `aqe-v2-v3-migration` (obsolete). `aqe init --upgrade` auto-cleans these.
+- **Removed tracked generated file** — `aqe.rvf.manifest.json` is now gitignored as it changes every session.
+
 ## [3.8.2] - 2026-03-17
 
 ### Fixed
